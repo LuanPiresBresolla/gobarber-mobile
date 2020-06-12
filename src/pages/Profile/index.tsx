@@ -1,6 +1,5 @@
 import React, { useCallback, useRef } from 'react';
 import {
-  Image,
   KeyboardAvoidingView,
   Platform,
   View,
@@ -8,10 +7,10 @@ import {
   TextInput,
   Alert,
 } from 'react-native';
-import Icon from 'react-native-vector-icons/Feather';
 import { useNavigation } from '@react-navigation/native';
 import { Form } from '@unform/mobile';
 import { FormHandles } from '@unform/core';
+import Icon from 'react-native-vector-icons/Feather';
 import * as Yup from 'yup';
 import getValidationErrors from '../../utils/getValidationErrors';
 
@@ -20,21 +19,32 @@ import api from '../../services/api';
 import Input from '../../components/Input';
 import Button from '../../components/Button';
 
-import logoImg from '../../assets/logo.png';
-
-import { Container, Title, BackToSignIn, BackToSignInText } from './styles';
+import {
+  Container,
+  Title,
+  UserAvatarButton,
+  UserAvatar,
+  BackButton,
+} from './styles';
+import { useAuth } from '../../hooks/auth';
 
 interface SignUpFormData {
   name: string;
   email: string;
+  old_password: string;
   password: string;
+  password_confirmation: string;
 }
 
-const SignUp: React.FC = () => {
+const Profile: React.FC = () => {
   const formRef = useRef<FormHandles>(null);
   const emailInputRef = useRef<TextInput>(null);
+  const oldPasswordInputRef = useRef<TextInput>(null);
   const passwordInputRef = useRef<TextInput>(null);
+  const ConfirmPasswordInputRef = useRef<TextInput>(null);
+
   const navigation = useNavigation();
+  const { user, updateUser } = useAuth();
 
   const handleSignUp = useCallback(
     async (data: SignUpFormData) => {
@@ -45,16 +55,50 @@ const SignUp: React.FC = () => {
           email: Yup.string()
             .required('E-mail obrigatório')
             .email('Digite um e-email válido'),
-          password: Yup.string().min(6, 'No mínimo 6 digitos'),
+          password: Yup.string().when('old_password', {
+            is: (val) => !!val.length,
+            then: Yup.string().required('Campo obrigatório'),
+            otherwise: Yup.string(),
+          }),
+          old_password: Yup.string(),
+          password_confirmation: Yup.string()
+            .when('old_password', {
+              is: (val) => !!val.length,
+              then: Yup.string().required('Campo obrigatório'),
+              otherwise: Yup.string(),
+            })
+            .oneOf([Yup.ref('password'), null], 'Confirmação incorreta'),
         });
 
         await schema.validate(data, { abortEarly: false });
 
-        await api.post('/users', data);
+        const {
+          email,
+          name,
+          old_password,
+          password,
+          password_confirmation,
+        } = data;
+
+        const formData = {
+          name,
+          email,
+          ...(old_password
+            ? {
+                old_password,
+                password,
+                password_confirmation,
+              }
+            : {}),
+        };
+
+        const repsonse = await api.put('/profile', formData);
+
+        updateUser(repsonse.data);
 
         Alert.alert(
-          'Cadastrao realizado',
-          'Você já pode fazer seu login na aplicação',
+          'Cadastro atualizado',
+          'Seu perfil foi atualizado com sucesso',
         );
 
         navigation.goBack();
@@ -66,13 +110,17 @@ const SignUp: React.FC = () => {
         }
 
         Alert.alert(
-          'Erro no cadastro',
-          'Erro ao realizar cadastro, verifique seus dados',
+          'Ocorreu um erro',
+          'Erro ao atualizar cadastro, verifique seus dados',
         );
       }
     },
-    [navigation],
+    [navigation, updateUser],
   );
+
+  const handleGoBack = useCallback(() => {
+    navigation.goBack();
+  }, [navigation]);
 
   return (
     <>
@@ -87,12 +135,19 @@ const SignUp: React.FC = () => {
           keyboardShouldPersistTaps="handled"
         >
           <Container>
-            <Image source={logoImg} />
+            <BackButton onPress={handleGoBack}>
+              <Icon name="chevron-left" size={30} color="#999591" />
+            </BackButton>
+
+            <UserAvatarButton>
+              <UserAvatar source={{ uri: user.avatar_url }} />
+            </UserAvatarButton>
+
             <View>
-              <Title>Crie sua conta</Title>
+              <Title>Meu perfil</Title>
             </View>
 
-            <Form onSubmit={handleSignUp} ref={formRef}>
+            <Form onSubmit={handleSignUp} ref={formRef} initialData={user}>
               <Input
                 name="name"
                 icon="user"
@@ -110,13 +165,37 @@ const SignUp: React.FC = () => {
                 autoCorrect={false}
                 autoCapitalize="none"
                 returnKeyType="next"
+                onSubmitEditing={() => oldPasswordInputRef.current?.focus()}
+              />
+
+              <Input
+                ref={oldPasswordInputRef}
+                name="old_password"
+                icon="lock"
+                placeholder="Senha atual"
+                containerStyle={{ marginTop: 20 }}
+                secureTextEntry
+                textContentType="newPassword"
+                returnKeyType="next"
                 onSubmitEditing={() => passwordInputRef.current?.focus()}
               />
+
               <Input
                 ref={passwordInputRef}
                 name="password"
                 icon="lock"
-                placeholder="Senha"
+                placeholder="Nova senha"
+                secureTextEntry
+                textContentType="newPassword"
+                returnKeyType="next"
+                onSubmitEditing={() => ConfirmPasswordInputRef.current?.focus()}
+              />
+
+              <Input
+                ref={ConfirmPasswordInputRef}
+                name="password_confirmation"
+                icon="lock"
+                placeholder="Confirmar nova senha"
                 secureTextEntry
                 textContentType="newPassword"
                 returnKeyType="send"
@@ -124,19 +203,14 @@ const SignUp: React.FC = () => {
               />
 
               <Button onPress={() => formRef.current?.submitForm()}>
-                Cadastrar
+                Confirmar mudanças
               </Button>
             </Form>
           </Container>
         </ScrollView>
       </KeyboardAvoidingView>
-
-      <BackToSignIn onPress={() => navigation.goBack()}>
-        <Icon name="arrow-left" size={20} color="#fff" />
-        <BackToSignInText>Voltar para logon</BackToSignInText>
-      </BackToSignIn>
     </>
   );
 };
 
-export default SignUp;
+export default Profile;
